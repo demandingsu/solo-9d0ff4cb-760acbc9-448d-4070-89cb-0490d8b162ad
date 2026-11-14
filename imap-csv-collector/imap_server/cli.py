@@ -3,6 +3,8 @@
 子命令：
   serve                 启动 IMAP 服务
   seed-if-empty         邮箱为空时写入演示种子邮件
+  seed-qc               追加质控区间演示邮件（幂等，已存在则跳过）
+  append                用本地 CSV 追加一封新邮件（新 Message-ID）
   list                  查看文件夹 UID 与 Message-ID
   replace-uid           用修复后的 CSV 重写指定 UID 的邮件
   redeliver             以新 UID 重投指定邮件（附件原样）
@@ -44,6 +46,27 @@ def cmd_serve(args: argparse.Namespace) -> None:
 def cmd_seed_if_empty(args: argparse.Namespace) -> None:
     seed_mod.seed(args.root, args.folder)
     print(f"种子邮件就绪: {args.root}/{args.folder}")
+
+
+def cmd_seed_qc(args: argparse.Namespace) -> None:
+    appended = seed_mod.seed_qc(args.root, args.folder)
+    if appended:
+        print(f"已追加 {len(appended)} 封质控演示邮件，UID={appended}")
+    else:
+        print("质控演示邮件已全部存在，跳过（幂等）")
+
+
+def cmd_append(args: argparse.Namespace) -> None:
+    payload = _load_attachment_bytes(args.csv_path)
+    mail = mailbox.build_message(
+        message_id=args.message_id,
+        subject=args.subject,
+        sender="instrument-a@lab.local",
+        recipient="lab@lab.local",
+        attachments=[(args.attachment, payload)],
+    )
+    uid = mailbox.append_message(args.root, args.folder, mail)
+    print(f"已追加邮件 Message-ID={args.message_id}，UID={uid}")
 
 
 def cmd_list(args: argparse.Namespace) -> None:
@@ -124,6 +147,16 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("seed-if-empty", help="写入演示种子邮件").set_defaults(
         func=cmd_seed_if_empty
     )
+    sub.add_parser("seed-qc", help="追加质控区间演示邮件（幂等）").set_defaults(
+        func=cmd_seed_qc
+    )
+
+    p_append = sub.add_parser("append", help="用本地 CSV 追加一封新邮件")
+    p_append.add_argument("--message-id", required=True)
+    p_append.add_argument("--subject", default="仪器结果 手工追加")
+    p_append.add_argument("--attachment", default="batch.csv")
+    p_append.add_argument("--csv-path", required=True)
+    p_append.set_defaults(func=cmd_append)
     sub.add_parser("list", help="列出文件夹邮件").set_defaults(func=cmd_list)
 
     p_replace = sub.add_parser("replace-uid", help="重写指定 UID 邮件的附件")
